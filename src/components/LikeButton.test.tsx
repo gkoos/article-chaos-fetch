@@ -3,26 +3,38 @@ import { render, screen } from "@testing-library/react";
 import { waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { setupServer } from "msw/node";
-import { http, HttpResponse } from "msw";
+import {
+  createClient,
+  replaceGlobalFetch,
+  restoreGlobalFetch,
+} from "@fetchkit/chaos-fetch";
+
 import LikeButton from "./LikeButton";
-import { describe, test, expect, beforeAll, afterAll, afterEach } from "vitest";
-
-const server = setupServer();
-
-beforeAll(() => server.listen());
-afterEach(() => server.resetHandlers());
-afterAll(() => server.close());
+import { describe, test, expect, afterEach } from "vitest";
 
 describe("LikeButton", () => {
+  afterEach(() => {
+    restoreGlobalFetch();
+  });
+
   test("like button disables during request and updates to backend value", async () => {
-    // Override the mock to return success
-    server.use(
-      http.post("/api/posts/:id/like", async () => {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        return HttpResponse.json({ likes: 43 });
-      })
+    // Mock fetch to return success
+    const client = createClient(
+      {
+        global: [
+          { latency: { ms: 300 } },
+        ],
+        routes: {
+          "POST /api/posts/:id/like": [
+            { latency: { ms: 300 } },
+            { mock: { body: '{ "likes": 43 }' } },
+          ],
+        },
+      },
+      window.fetch
     );
+    // Replace global fetch with mock client
+    replaceGlobalFetch(client);
 
     const user = userEvent.setup();
     render(<LikeButton initialLikes={42} postId="abc" />);
@@ -44,13 +56,21 @@ describe("LikeButton", () => {
   });
 
   test("like button disables during request and rolls back on backend error", async () => {
-    // Override the mock to return an error
-    server.use(
-      http.post("/api/posts/:id/like", async () => {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        return HttpResponse.text("fail", { status: 500 });
-      })
+    // Mock fetch to return success
+    const client = createClient(
+      {
+        global: [],
+        routes: {
+          "POST /api/posts/:id/like": [
+            { latency: { ms: 300 } },
+            { mock: { status: 500, body: '{ "error": "Internal Server Error" }' } },
+          ],
+        },
+      },
+      window.fetch
     );
+    // Replace global fetch with mock client
+    replaceGlobalFetch(client);
 
     const user = userEvent.setup();
     render(<LikeButton initialLikes={42} postId="abc" />);
